@@ -111,6 +111,10 @@ jobs:
             echo "CONFIG_KSU=y" >> arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}
           fi
 
+          # Fix NR_CPUS mismatch - GitHub runner has more CPUs than kernel expects
+          # Samsung SDM429 is a 4-core chip, set NR_CPUS=8 to be safe
+          echo "CONFIG_NR_CPUS=8" >> arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}
+
           make ARCH=${{ env.ARCH }} \
                CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
                ${{ env.KERNEL_DEFCONFIG }}
@@ -120,6 +124,7 @@ jobs:
         run: |
           make ARCH=${{ env.ARCH }} \
                CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
+               NR_CPUS=8 \
                -j$(nproc) \
                2>&1 | tee ../build.log
 
