@@ -48,16 +48,9 @@ jobs:
             gcc gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
             python3 zip unzip \
-            ccache lld llvm \
+            lld llvm \
             libncurses-dev \
             cpio kmod
-
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.14
-        with:
-          max-size: 2G
-          key: gtowifi-kernel-${{ github.sha }}
-          restore-keys: gtowifi-kernel-
 
       - name: Clone kernel source
         run: |
@@ -125,11 +118,8 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
-          export PATH="/usr/lib/ccache:$PATH"
-
           make ARCH=${{ env.ARCH }} \
                CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
-               CC="ccache aarch64-linux-gnu-gcc" \
                -j$(nproc) \
                2>&1 | tee ../build.log
 
