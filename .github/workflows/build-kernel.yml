@@ -31,41 +31,28 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y bc bison build-essential ccache curl flex git libncurses5-dev libssl-dev libelf-dev lzop zip
 
-      - name: Download Toolchain (Robust method)
+      - name: Download Android 4.9 Toolchain
         run: |
-          echo "Downloading Android 4.9 toolchain..."
-          mkdir -p toolchain
-          cd toolchain
-          
-          # Try multiple known good sources
-          wget -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-19.1.tar.gz -O toolchain.tar.gz || \
-          wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz -O toolchain.tar.gz
-          
-          echo "Extracting..."
-          tar -xzf toolchain.tar.gz 2>/dev/null || tar --strip-components=1 -xzf toolchain.tar.gz 2>/dev/null || true
-          
-          echo "=== Searching for compiler ==="
-          find . -name "aarch64-linux-android-gcc" 2>/dev/null | head -5 || echo "Not found with find"
-          ls -la bin/ 2>/dev/null || echo "No bin folder"
+          echo "Downloading toolchain..."
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchain
 
       - name: Build kernel
         run: |
           export ARCH=arm64
           
-          # Find the compiler dynamically
-          COMPILER_PATH=$(find toolchain -name "aarch64-linux-android-gcc" 2>/dev/null | head -1)
+          # Use the exact path we found
+          TOOLCHAIN_DIR="toolchain/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-lineage-19.1/bin"
           
-          if [ -z "$COMPILER_PATH" ]; then
-            echo "ERROR: Compiler binary still not found!"
-            find toolchain -type f -name "*gcc*" | head -10
+          if [ -f "$TOOLCHAIN_DIR/aarch64-linux-android-gcc" ]; then
+            export CROSS_COMPILE="$TOOLCHAIN_DIR/aarch64-linux-android-"
+            echo "Using CROSS_COMPILE=$CROSS_COMPILE"
+          else
+            echo "ERROR: Compiler not found at expected path!"
+            find toolchain -name "aarch64-linux-android-gcc" | head -5
             exit 1
           fi
           
-          export CROSS_COMPILE=$(dirname "$COMPILER_PATH")/aarch64-linux-android-
-          echo "Found compiler at: $COMPILER_PATH"
-          echo "Using CROSS_COMPILE=$CROSS_COMPILE"
-          
-          export CROSS_COMPILE_ARM32=toolchain/bin/arm-linux-androideabi-
+          export CROSS_COMPILE_ARM32="$TOOLCHAIN_DIR/arm-linux-androideabi-"
           
           make -j$(nproc) P81080_defconfig
           make -j$(nproc)
