@@ -1,4 +1,4 @@
-name: Build ReSukiSU Kernel (Simple)
+name: Final ReSukiSU Build
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
       options: --privileged
 
     steps:
-      - name: Checkout kernel
+      - name: Checkout kernel source
         uses: actions/checkout@v4
 
       - name: Integrate ReSukiSU
@@ -25,36 +25,49 @@ jobs:
         run: |
           echo "CONFIG_KSU=y" >> arch/arm64/configs/P81080_defconfig
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/P81080_defconfig
+          echo "ReSukiSU enabled"
 
-      - name: Setup environment
+      - name: Install build packages
         run: |
           apt-get update
-          apt-get install -y bc bison build-essential ccache curl flex git libncurses5-dev libssl-dev wget
+          apt-get install -y bc bison build-essential ccache curl flex git libncurses5-dev libssl-dev libelf-dev lzop zip wget
 
       - name: Download Toolchain
         run: |
-          mkdir -p toolchain
-          cd toolchain
-          wget -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-19.1.tar.gz -O tc.tar.gz
-          tar -xzf tc.tar.gz
-          ls -la */bin/ | head -5
+          echo "Cloning toolchain..."
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchain
 
       - name: Build kernel
         run: |
           export ARCH=arm64
-          export CROSS_COMPILE=$(pwd)/toolchain/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-lineage-19.1/bin/aarch64-linux-android-
+          
+          # Exact path we found
+          TOOLCHAIN="toolchain/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-lineage-19.1/bin"
+          
+          if [ ! -f "$TOOLCHAIN/aarch64-linux-android-gcc" ]; then
+            echo "Compiler NOT found at $TOOLCHAIN"
+            find toolchain -name "aarch64-linux-android-gcc" | head -5
+            exit 1
+          fi
+          
+          export CROSS_COMPILE="$TOOLCHAIN/aarch64-linux-android-"
+          export CROSS_COMPILE_ARM32="$TOOLCHAIN/arm-linux-androideabi-"
+          
+          echo "Using CROSS_COMPILE=$CROSS_COMPILE"
           
           make -j$(nproc) P81080_defconfig
           make -j$(nproc)
 
-      - name: Package
+      - name: Package AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          cp arch/arm64/boot/Image.gz-dtb AnyKernel3/ || true
-          cd AnyKernel3 && zip -r9 ../ReSukiSU_kernel.zip * && cd ..
+          cp arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp arch/arm64/boot/Image AnyKernel3/ || true
+          cd AnyKernel3
+          zip -r9 ../ReSukiSU_gtowifi.zip *
+          cd ..
 
-      - name: Upload
+      - name: Upload result
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel
-          path: ReSukiSU_kernel.zip
+          name: ReSukiSU-Kernel
+          path: ReSukiSU_gtowifi.zip
