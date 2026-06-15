@@ -1,213 +1,26 @@
-name: Build KernelSU Kernel for gtowifi (SM-T290/T295)
+name: Build ReSukiSU Kernel for gtowifi
 
 on:
+  push:
+    branches: [ main, lineage-22* ]
   workflow_dispatch:
-    inputs:
-      KSU_VERSION:
-        description: 'KernelSU version tag (e.g. v0.9.5) or leave blank for latest'
-        required: false
-        default: ''
-      BUILD_TYPE:
-        description: 'Build type'
-        required: true
-        default: 'kernelsu'
-        type: choice
-        options:
-          - kernelsu
-          - vanilla
-
-env:
-  KERNEL_REPO: https://github.com/LineageOS/android_kernel_samsung_sdm429
-  KERNEL_BRANCH: lineage-22.2
-  KERNEL_DEFCONFIG: gtowifi_defconfig
-  ARCH: arm64
-  CROSS_COMPILE: aarch64-linux-gnu-
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Print build info
-        run: |
-          echo "==============================="
-          echo " KernelSU Kernel Build"
-          echo " Device  : SM-T290 / SM-T295 (gtowifi)"
-          echo " SoC     : Snapdragon 429 (SDM429)"
-          echo " Build   : ${{ github.event.inputs.BUILD_TYPE || 'kernelsu' }}"
-          echo " Date    : $(date)"
-          echo "==============================="
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            git curl wget make bc bison flex \
-            libssl-dev libelf-dev \
-            gcc gcc-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu \
-            python3 zip unzip \
-            lld llvm \
-            libncurses-dev \
-            cpio kmod
-
-      - name: Clone kernel source
-        run: |
-          echo "Cloning kernel source..."
-          git clone --depth=1 \
-            --branch ${{ env.KERNEL_BRANCH }} \
-            ${{ env.KERNEL_REPO }} \
-            kernel
-          echo "Done cloning."
-
-      - name: Apply KernelSU patch
-        if: ${{ github.event.inputs.BUILD_TYPE != 'vanilla' }}
-        working-directory: kernel
-        run: |
-          KSU_VER="${{ github.event.inputs.KSU_VERSION }}"
-          if [ -z "$KSU_VER" ]; then
-            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          else
-            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "$KSU_VER"
-          fi
-
-          if [ -d "drivers/kernelsu" ]; then
-            echo "KernelSU applied successfully"
-          else
-            echo "Trying manual method..."
-            git submodule add https://github.com/tiann/KernelSU drivers/kernelsu || true
-            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-            sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          fi
-
-      - name: Apply manual hooks for kernel 4.9
-        if: ${{ github.event.inputs.BUILD_TYPE != 'vanilla' }}
-        working-directory: kernel
-        run: |
-          if ! grep -q "ksu_handle_execveat" fs/exec.c; then
-            sed -i '/^#include <linux\/binfmts.h>/a #ifdef CONFIG_KSU\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\n#endif' fs/exec.c
-            sed -i '/retval = bprm_mm_init(bprm);/i \#ifdef CONFIG_KSU\n\tksu_handle_execveat(\&fd, \&filename, argv, envp, \&flags);\n#endif' fs/exec.c
-            echo "exec.c hook applied"
-          fi
-
-          if ! grep -q "ksu_handle_faccessat" fs/open.c; then
-            sed -i '/^SYSCALL_DEFINE3(faccessat/i #ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif' fs/open.c
-            sed -i '/audit_syscall_entry/i \#ifdef CONFIG_KSU\n\tksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n#endif' fs/open.c
-            echo "open.c hook applied"
-          fi
-
-          if ! grep -q "ksu_handle_input_handle_event" drivers/input/input.c; then
-            sed -i '/^static void input_handle_event/a #ifdef CONFIG_KSU\nextern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\n#endif' drivers/input/input.c
-            sed -i '/disposition = input_get_disposition/i \#ifdef CONFIG_KSU\n\tksu_handle_input_handle_event(\&type, \&code, \&value);\n#endif' drivers/input/input.c
-            echo "input.c hook applied"
-          fi
-
-      - name: Configure kernel
-        working-directory: kernel
-        run: |
-          BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE || 'kernelsu' }}"
-          if [ "$BUILD_TYPE" = "kernelsu" ]; then
-            echo "CONFIG_KSU=y" >> arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}
-          fi
-
-          # Fix NR_CPUS mismatch - GitHub runner has more CPUs than kernel expects
-          # Samsung SDM429 is a 4-core chip, set NR_CPUS=8 to be safe
-          echo "CONFIG_NR_CPUS=8" >> arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}
-
-          make ARCH=${{ env.ARCH }} \
-               CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
-               ${{ env.KERNEL_DEFCONFIG }}
-
-      - name: Build kernel
-        working-directory: kernel
-        run: |
-          make ARCH=${{ env.ARCH }} \
-               CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
-               NR_CPUS=8 \
-               -j$(nproc) \
-               2>&1 | tee ../build.log
-
-          if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
-            echo "Build successful - Image.gz-dtb found"
-            ls -lh arch/arm64/boot/Image.gz-dtb
-          elif [ -f "arch/arm64/boot/Image.gz" ]; then
-            echo "Build successful - Image.gz found"
-            ls -lh arch/arm64/boot/Image.gz
-          else
-            echo "Build FAILED - no kernel image found"
-            tail -50 ../build.log
-            exit 1
-          fi
-
-      - name: Package with AnyKernel3
-        run: |
-          git clone --depth=1 \
-            https://github.com/osm0sis/AnyKernel3 \
-            AnyKernel3
-
-          if [ -f "kernel/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp kernel/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-          else
-            cp kernel/arch/arm64/boot/Image.gz AnyKernel3/
-          fi
-
-          cat > AnyKernel3/anykernel.sh << 'EOF'
-          properties() { '
-          kernel.string=KernelSU Kernel for gtowifi
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=gtowifi
-          device.name2=SM-T290
-          device.name3=SM-T295
-          supported.versions=
-          supported.patchlevels=
-          '; }
-
-          block=/dev/block/platform/soc/7824900.sdhci/by-name/boot;
-          is_slot_device=0;
-          ramdisk_compression=auto;
-
-          . tools/ak3-core.sh;
-          . split_img;
-          . repack_ramdisk;
-          . flash_kernel;
-          EOF
-
-          BUILD_TYPE="${{ github.event.inputs.BUILD_TYPE || 'kernelsu' }}"
-          ZIP_NAME="gtowifi-kernel-${BUILD_TYPE}-$(date +%Y%m%d-%H%M).zip"
-
-          cd AnyKernel3
-          zip -r9 "../$ZIP_NAME" . -x ".git/*" -x "*.md"
-          cd ..
-
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-          ls -lh "$ZIP_NAME"
-
-      - name: Upload kernel zip
-        uses: actions/upload-artifact@v4
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
         with:
-          name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_NAME }}
-          retention-days: 7
+          fetch-depth: 1
 
-      - name: Upload build log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: build-log-${{ github.run_id }}
-          path: build.log
-          retention-days: 3
-
-      - name: Build summary
-        if: success()
+      - name: Integrate ReSukiSU
         run: |
-          echo "==============================="
-          echo " BUILD SUCCESSFUL"
-          echo " Device : SM-T290 / SM-T295"
-          echo " Output : ${{ env.ZIP_NAME }}"
-          echo " Download from Actions > Artifacts"
-          echo "==============================="
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+
+      - name: Show what was done
+        run: |
+          ls -la drivers/kernelsu || echo "Symlink check"
+          echo "=== drivers/Makefile (last 10 lines) ==="
+          tail -10 drivers/Makefile
