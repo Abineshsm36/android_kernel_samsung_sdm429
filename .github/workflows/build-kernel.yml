@@ -22,9 +22,9 @@ jobs:
       - name: Enable ReSukiSU in config
         run: |
           # Enable KernelSU
-          echo "CONFIG_KSU=y" >> arch/arm64/configs/<YOUR_DEFCONFIG>
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/<YOUR_DEFCONFIG>
-          # Optional: echo "CONFIG_KSU_SUSFS_INLINE_HOOK=y" >> arch/arm64/configs/<YOUR_DEFCONFIG>
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/<lineageos_gtowifi_defconfig>
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/<lineageos_gtowifi_defconfig>
+          # Optional: echo "CONFIG_KSU_SUSFS_INLINE_HOOK=y" >> arch/arm64/configs/<lineageos_gtowifi_defconfig>
 
       - name: Setup build environment
         run: |
@@ -36,7 +36,7 @@ jobs:
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
           # Use LineageOS prebuilts if available, or basic make
-          make -j$(nproc) <YOUR_DEFCONFIG>
+          make -j$(nproc) <lineageos_gtowifi_defconfig>
           make -j$(nproc)
 
       - name: Package as AnyKernel3
