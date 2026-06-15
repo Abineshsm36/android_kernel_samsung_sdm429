@@ -33,19 +33,31 @@ jobs:
 
       - name: Download Android 4.9 Toolchain
         run: |
-          mkdir -p toolchain
-          cd toolchain
-          # Reliable 4.9 toolchain (commonly used in Actions)
-          wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz -O toolchain.tar.gz
-          tar --strip-components=1 -xzf toolchain.tar.gz
-          ls -la bin/
-          echo "Toolchain downloaded successfully"
+          echo "Cloning toolchain..."
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchain
+          
+          # Check possible locations
+          echo "=== Checking toolchain structure ==="
+          ls -la toolchain/ || true
+          ls -la toolchain/bin/ || true
+          find toolchain -name "aarch64-linux-android-gcc" 2>/dev/null | head -5 || true
 
       - name: Build kernel
         run: |
           export ARCH=arm64
-          export CROSS_COMPILE=$(pwd)/toolchain/bin/aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=$(pwd)/toolchain/bin/arm-linux-androideabi-
+          # Try common paths
+          if [ -f "toolchain/bin/aarch64-linux-android-gcc" ]; then
+            export CROSS_COMPILE=toolchain/bin/aarch64-linux-android-
+          elif [ -f "toolchain/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc" ]; then
+            export CROSS_COMPILE=toolchain/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+          else
+            echo "ERROR: Compiler not found!"
+            find toolchain -name "*gcc*" | head -10
+            exit 1
+          fi
+          
+          echo "Using CROSS_COMPILE=$CROSS_COMPILE"
+          export CROSS_COMPILE_ARM32=toolchain/bin/arm-linux-androideabi-
           
           make -j$(nproc) P81080_defconfig
           make -j$(nproc)
