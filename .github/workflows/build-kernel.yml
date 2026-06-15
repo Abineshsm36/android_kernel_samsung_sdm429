@@ -24,19 +24,29 @@ jobs:
           DEFCONFIG="P81080_defconfig"
           echo "CONFIG_KSU=y" >> arch/arm64/configs/$DEFCONFIG
           echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/$DEFCONFIG
-          echo "[+] ReSukiSU enabled in $DEFCONFIG"
+          echo "[+] ReSukiSU config enabled"
 
       - name: Setup build environment
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex git \
-            libncurses5-dev libssl-dev libelf-dev lzop zip
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libncurses5-dev libssl-dev libelf-dev lzop zip
+
+      - name: Download Android toolchain
+        run: |
+          mkdir -p prebuilts
+          cd prebuilts
+          # Download LineageOS / AOSP prebuilt toolchain for 4.9 kernel
+          wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/master.tar.gz -O toolchain.tar.gz || \
+          wget -q https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-19.1.tar.gz -O toolchain.tar.gz
+          tar -xzf toolchain.tar.gz -C . --strip-components=1 || true
+          ls -la
 
       - name: Build kernel
         run: |
           export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE=$(pwd)/prebuilts/bin/aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=$(pwd)/prebuilts/bin/arm-linux-androideabi-
+          
           make -j$(nproc) P81080_defconfig
           make -j$(nproc)
 
