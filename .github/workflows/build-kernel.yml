@@ -1,8 +1,8 @@
-name: Build ReSukiSU Kernel for gtowifi
+name: Build ReSukiSU Kernel (gtowifi / SM-T295)
 
 on:
   push:
-    branches: [ main, lineage-22* ]
+    branches: [ main, lineage-* ]
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout kernel source
+      - name: Checkout kernel
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -19,8 +19,36 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
 
-      - name: Show what was done
+      - name: Enable ReSukiSU in config
         run: |
-          ls -la drivers/kernelsu || echo "Symlink check"
-          echo "=== drivers/Makefile (last 10 lines) ==="
-          tail -10 drivers/Makefile
+          # Enable KernelSU
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/<YOUR_DEFCONFIG>
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/<YOUR_DEFCONFIG>
+          # Optional: echo "CONFIG_KSU_SUSFS_INLINE_HOOK=y" >> arch/arm64/configs/<YOUR_DEFCONFIG>
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+
+      - name: Build kernel
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-android-
+          # Use LineageOS prebuilts if available, or basic make
+          make -j$(nproc) <YOUR_DEFCONFIG>
+          make -j$(nproc)
+
+      - name: Package as AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
+          cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          cd AnyKernel3
+          zip -r9 ../ReSukiSU_gtowifi_$(date +%Y%m%d).zip *
+          cd ..
+
+      - name: Upload kernel zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReSukiSU-Kernel
+          path: ReSukiSU_gtowifi_*.zip
