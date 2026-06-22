@@ -4,32 +4,40 @@ on:
   push:
     branches:
       - main
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout kernel source
         uses: actions/checkout@v4
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             build-essential git zip
+
       - name: Configure kernel
         run: |
           make O=out ARCH=arm64 lineageos_gtowifi_defconfig
+          ./scripts/config --file out/.config --disable VDSO32
+          make O=out ARCH=arm64 olddefconfig
+
       - name: Build kernel
         run: |
           make O=out ARCH=arm64 -j$(nproc) \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- 2>&1 | tee build.log
+
       - name: Upload build log (always, even on failure)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: build.log
+
       - name: Upload kernel image
         uses: actions/upload-artifact@v4
         with:
