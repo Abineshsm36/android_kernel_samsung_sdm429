@@ -1,73 +1,62 @@
-name: Final ReSukiSU Build
+name: Build T295 Kernel
 
 on:
-  push:
-    branches: [ main, lineage-* ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
-    container:
-      image: ghcr.io/catthehacker/ubuntu:act-22.04
-      options: --privileged
-
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout kernel source
         uses: actions/checkout@v4
 
-      - name: Integrate ReSukiSU
+      - name: Install build dependencies
         run: |
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            build-essential git zip
 
-      - name: Enable ReSukiSU
+      # STEP 1: Run this first to find your real defconfig name.
+      # Open the Actions log for this step and look for a file
+      # matching your device (e.g. something with "gto" in the name).
+      - name: List available defconfigs (debug)
         run: |
-          echo "CONFIG_KSU=y" >> arch/arm64/configs/P81080_defconfig
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/P81080_defconfig
-          echo "ReSukiSU enabled"
+          echo "---- arch/arm64/configs ----"
+          ls arch/arm64/configs/ 2>/dev/null || echo "(no arm64 configs dir)"
+          echo "---- arch/arm/configs ----"
+          ls arch/arm/configs/ 2>/dev/null || echo "(no arm configs dir)"
 
-      - name: Install build packages
+      # STEP 2: Once you've confirmed the name above, replace
+      # gto_defconfig below with the exact filename (minus .h if any).
+      - name: Configure kernel
+        env:
+          DEFCONFIG: gto_defconfig
         run: |
-          apt-get update
-          apt-get install -y bc bison build-essential ccache curl flex git libncurses5-dev libssl-dev libelf-dev lzop zip wget
-
-      - name: Download Toolchain
-        run: |
-          echo "Cloning toolchain..."
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchain
+          make O=out ARCH=arm64 ${DEFCONFIG}
 
       - name: Build kernel
         run: |
-          export ARCH=arm64
-          
-          # Exact path we found
-          TOOLCHAIN="toolchain/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-lineage-19.1/bin"
-          
-          if [ ! -f "$TOOLCHAIN/aarch64-linux-android-gcc" ]; then
-            echo "Compiler NOT found at $TOOLCHAIN"
-            find toolchain -name "aarch64-linux-android-gcc" | head -5
-            exit 1
-          fi
-          
-          export CROSS_COMPILE="$TOOLCHAIN/aarch64-linux-android-"
-          export CROSS_COMPILE_ARM32="$TOOLCHAIN/arm-linux-androideabi-"
-          
-          echo "Using CROSS_COMPILE=$CROSS_COMPILE"
-          
-          make -j$(nproc) P81080_defconfig
-          make -j$(nproc)
+          make O=out ARCH=arm64 -j$(nproc) \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- 2>&1 | tee build.log
 
-      - name: Package AnyKernel3
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-          cp arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp arch/arm64/boot/Image AnyKernel3/ || true
-          cd AnyKernel3
-          zip -r9 ../ReSukiSU_gtowifi.zip *
-          cd ..
-
-      - name: Upload result
+      - name: Upload build log (always, even on failure)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ReSukiSU-Kernel
-          path: ReSukiSU_gtowifi.zip
+          name: build-log
+          path: build.log
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-output
+          path: |
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/Image
+            out/.config
+          if-no-files-found: warn
