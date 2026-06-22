@@ -11,28 +11,21 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
+      - name: Install Toolchains and Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev git lz4 liblz4-tool
-
-      - name: Download Proton Clang Toolchain
-        run: |
-          echo "=== Downloading Proton Clang (All-in-One Toolchain) ==="
-          # Performs a shallow clone to save time and space
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git tc
-          # Dynamically adds the toolchain's binaries path to the GitHub runner environment
-          echo "$GITHUB_WORKSPACE/tc/bin" >> $GITHUB_PATH
+          sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev git lz4 liblz4-tool \
+                                 crossbuild-essential-arm64 gcc-arm-linux-gnueabi
 
       - name: Patch Build Errors via sed
         run: |
-          echo "=== Patching Prima Wi-Fi Driver flags just in case ==="
+          echo "=== Patching Prima Wi-Fi Driver flags for GCC compliance ==="
           if [ -f drivers/staging/prima/Makefile ]; then
             sed -i 's/-Wno-non-literal-null-conversion//g' drivers/staging/prima/Makefile
             sed -i 's/-Wno-typedef-redefinition//g' drivers/staging/prima/Makefile
             echo "Successfully clean-patched drivers/staging/prima/Makefile"
           else
-            echo "Prima Makefile not found, skipping."
+            echo "Warning: drivers/staging/prima/Makefile not found!"
           fi
 
       - name: Configure and Compile Kernel
@@ -41,8 +34,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           
-          # Set Proton Clang environment variables
-          export CC=clang
+          # Assign the correct 64-bit and 32-bit GCC toolchain prefixes
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
