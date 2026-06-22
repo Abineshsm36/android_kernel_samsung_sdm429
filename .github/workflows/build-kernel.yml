@@ -23,6 +23,8 @@ jobs:
           if [ -f drivers/staging/prima/Makefile ]; then
             sed -i 's/-Wno-non-literal-null-conversion//g' drivers/staging/prima/Makefile
             sed -i 's/-Wno-typedef-redefinition//g' drivers/staging/prima/Makefile
+            sed -i 's/-Wno-parentheses-equality//g' drivers/staging/prima/Makefile
+            sed -i 's/-Wno-pointer-bool-conversion//g' drivers/staging/prima/Makefile
             echo "Successfully clean-patched drivers/staging/prima/Makefile"
           fi
 
@@ -55,11 +57,11 @@ jobs:
           # Setup output directory
           mkdir -p out
           
-          echo "=== Generating configuration from lineageos_gtowifi_defconfig === "
+          echo "=== Generating configuration from lineageos_gtowifi_defconfig ==="
           make O=out lineageos_gtowifi_defconfig
           
-          echo "=== Starting compilation ==="
-          make -j$(nproc) O=out
+          echo "=== Starting compilation (Single Thread Mode) ==="
+          make -j1 O=out
 
       - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
