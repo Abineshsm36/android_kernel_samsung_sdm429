@@ -14,15 +14,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
-            gcc-arm-linux-gnueabi \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             build-essential git zip
       - name: Configure kernel
         run: |
-          make O=out ARCH=arm sdm429-bg_defconfig
-      - name: Build kernel (zImage only, skip broken unrelated-board dtbs)
+          make O=out ARCH=arm64 lineageos_gtowifi_defconfig
+      - name: Build kernel
         run: |
-          make O=out ARCH=arm -j$(nproc) \
-            CROSS_COMPILE=arm-linux-gnueabi- zImage 2>&1 | tee build.log
+          make O=out ARCH=arm64 -j$(nproc) \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- 2>&1 | tee build.log
       - name: Upload build log (always, even on failure)
         if: always()
         uses: actions/upload-artifact@v4
@@ -34,6 +35,7 @@ jobs:
         with:
           name: kernel-output
           path: |
-            out/arch/arm/boot/zImage
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/Image
             out/.config
           if-no-files-found: warn
