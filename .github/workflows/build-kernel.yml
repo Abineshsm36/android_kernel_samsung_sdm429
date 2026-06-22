@@ -1,49 +1,66 @@
-name: Build T295 Kernel
+name: Build Android Kernel (gtowifi)
+
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+  workflow_dispatch: # Allows you to manually click "Run workflow" from the Actions tab
 
 jobs:
-  build:
+  build-kernel:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: Checkout kernel source
+      - name: Checkout Kernel Source
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev libelf-dev \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            build-essential git zip
+          sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev git lz4 liblz4-tool
 
-      - name: Configure kernel
+      - name: Download Proton Clang Toolchain
         run: |
-          make O=out ARCH=arm64 lineageos_gtowifi_defconfig
+          echo "=== Downloading Proton Clang (All-in-One Toolchain) ==="
+          # Performs a shallow clone to save time and space
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git tc
+          # Dynamically adds the toolchain's binaries path to the GitHub runner environment
+          echo "$GITHUB_WORKSPACE/tc/bin" >> $GITHUB_PATH
 
-      - name: Build kernel
+      - name: Patch Build Errors via sed
         run: |
-          make O=out ARCH=arm64 -j$(nproc) \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LD_COMPAT=arm-linux-gnueabi-ld 2>&1 | tee build.log
+          echo "=== Patching Prima Wi-Fi Driver flags just in case ==="
+          if [ -f drivers/staging/prima/Makefile ]; then
+            sed -i 's/-Wno-non-literal-null-conversion//g' drivers/staging/prima/Makefile
+            sed -i 's/-Wno-typedef-redefinition//g' drivers/staging/prima/Makefile
+            echo "Successfully clean-patched drivers/staging/prima/Makefile"
+          else
+            echo "Prima Makefile not found, skipping."
+          fi
 
-      - name: Upload build log (always, even on failure)
-        if: always()
+      - name: Configure and Compile Kernel
+        run: |
+          # Set architecture targets
+          export ARCH=arm64
+          export SUBARCH=arm64
+          
+          # Set Proton Clang environment variables
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          
+          # Setup output directory
+          mkdir -p out
+          
+          echo "=== Generating configuration from lineageos_gtowifi_defconfig ==="
+          make O=out lineageos_gtowifi_defconfig
+          
+          echo "=== Starting compilation ==="
+          make -j$(nproc) O=out
+
+      - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
-
-      - name: Upload kernel image
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-output
+          name: kernel-gtowifi-build
           path: |
-            out/arch/arm64/boot/Image.gz-dtb
             out/arch/arm64/boot/Image
-            out/.config
-          if-no-files-found: warn
+            out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/dtbo.img
