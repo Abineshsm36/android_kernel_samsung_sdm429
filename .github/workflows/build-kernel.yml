@@ -33,10 +33,8 @@ jobs:
       # STEP 2: Once you've confirmed the name above, replace
       # gto_defconfig below with the exact filename (minus .h if any).
       - name: Configure kernel
-        env:
-          DEFCONFIG: sdm429-bg_defconfig
         run: |
-          make O=out ARCH=arm64 ${DEFCONFIG}
+          make O=out ARCH=arm64 sdm429-bg_defconfig
 
       - name: Build kernel
         run: |
