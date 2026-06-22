@@ -19,11 +19,13 @@ jobs:
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             build-essential git zip
 
+      - name: Disable VDSO32 via Kconfig Patch
+        run: |
+          sed -i 's/config VDSO32/config VDSO32_DISABLED/g' arch/arm64/Kconfig
+
       - name: Configure kernel
         run: |
           make O=out ARCH=arm64 lineageos_gtowifi_defconfig
-          ./scripts/config --file out/.config --disable VDSO32
-          make O=out ARCH=arm64 olddefconfig
 
       - name: Build kernel
         run: |
