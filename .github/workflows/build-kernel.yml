@@ -1,74 +1,45 @@
-name: Build Android Kernel (gtowifi)
+name: Build SM-T295 Kernel
 
 on:
-  workflow_dispatch: # Allows you to manually click "Run workflow" from the Actions tab
+  workflow_dispatch:
 
 jobs:
-  build-kernel:
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Kernel Source
+      - name: Checkout kernel
         uses: actions/checkout@v4
 
-      - name: Install Toolchains and Build Dependencies
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev flex bison libelf-dev git lz4 liblz4-tool \
-                                 crossbuild-essential-arm64 gcc-arm-linux-gnueabi
+          sudo apt update
+          sudo apt install -y \
+          bc bison build-essential curl flex g++-multilib \
+          gcc-multilib git gnupg gperf imagemagick \
+          lib32ncurses5-dev lib32readline-dev lib32z1-dev \
+          libelf-dev liblz4-tool libsdl1.2-dev libssl-dev \
+          lzop pngcrush rsync schedtool squashfs-tools \
+          xsltproc zip zlib1g-dev python3
 
-      - name: Patch Build Errors via sed
+      - name: Setup clang
         run: |
-          echo "=== Patching Prima Wi-Fi Driver flags for GCC compliance ==="
-          if [ -f drivers/staging/prima/Makefile ]; then
-            sed -i 's/-Wno-non-literal-null-conversion//g' drivers/staging/prima/Makefile
-            sed -i 's/-Wno-typedef-redefinition//g' drivers/staging/prima/Makefile
-            sed -i 's/-Wno-parentheses-equality//g' drivers/staging/prima/Makefile
-            sed -i 's/-Wno-pointer-bool-conversion//g' drivers/staging/prima/Makefile
-            echo "Successfully clean-patched drivers/staging/prima/Makefile"
-          fi
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-          echo "=== Disabling VDSO32 to bypass broken linker errors ==="
-          CONFIG_FILE="arch/arm64/configs/lineageos_gtowifi_defconfig"
-          if [ -f "$CONFIG_FILE" ]; then
-            # Turn off VDSO32 options if they are explicitly set to 'y'
-            sed -i 's/CONFIG_VDSO32=y/# CONFIG_VDSO32 is not set/g' "$CONFIG_FILE"
-            sed -i 's/CONFIG_COMPAT_VDSO=y/# CONFIG_COMPAT_VDSO is not set/g' "$CONFIG_FILE"
-            
-            # Append explicit disable commands to guarantee they are turned off
-            echo "# CONFIG_VDSO32 is not set" >> "$CONFIG_FILE"
-            echo "# CONFIG_COMPAT_VDSO is not set" >> "$CONFIG_FILE"
-            echo "Successfully disabled VDSO32 inside lineageos_gtowifi_defconfig"
-          else
-            echo "Error: lineageos_gtowifi_defconfig not found!"
-            exit 1
-          fi
-
-      - name: Configure and Compile Kernel
+      - name: Build
         run: |
-          # Set architecture targets
           export ARCH=arm64
           export SUBARCH=arm64
-          
-          # Assign the 64-bit and 32-bit GCC toolchain prefixes
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          
-          # Setup output directory
-          mkdir -p out
-          
-          echo "=== Generating configuration from lineageos_gtowifi_defconfig ==="
-          make O=out lineageos_gtowifi_defconfig
-          
-          echo "=== Starting compilation (Single Thread Mode) ==="
-          make -j1 O=out
+          export PATH=$PWD/clang/bin:$PATH
 
-      - name: Upload Kernel Artifacts
+          make O=out vendor/gta_defconfig
+          make O=out -j$(nproc) \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-gtowifi-build
-          path: |
-            out/arch/arm64/boot/Image
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/Image.gz-dtb
-            out/arch/arm64/boot/dtbo.img
+          name: kernel
+          path: out
