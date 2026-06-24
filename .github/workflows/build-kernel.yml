@@ -5,41 +5,50 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout kernel
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           sudo apt update
           sudo apt install -y \
-          bc bison build-essential curl flex g++-multilib \
-          gcc-multilib git gnupg gperf imagemagick \
-          lib32ncurses5-dev lib32readline-dev lib32z1-dev \
-          libelf-dev liblz4-tool libsdl1.2-dev libssl-dev \
-          lzop pngcrush rsync schedtool squashfs-tools \
-          xsltproc zip zlib1g-dev python3
+            git bc bison flex \
+            build-essential \
+            libssl-dev \
+            libelf-dev \
+            python3 \
+            python-is-python3 \
+            curl zip unzip
 
-      - name: Setup clang
+      - name: Clone Proton Clang
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-      - name: Build
+      - name: Show Available Defconfigs
+        run: |
+          find arch/arm64/configs -type f | sort
+
+      - name: Build Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=$PWD/clang/bin:$PATH
 
+          mkdir -p out
+
+          # CHANGE THIS AFTER CHECKING LOGS
           make O=out vendor/gta_defconfig
+
           make O=out -j$(nproc) \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-      - name: Upload
+      - name: Upload Build Output
         uses: actions/upload-artifact@v4
         with:
-          name: kernel
+          name: kernel-output
           path: out
