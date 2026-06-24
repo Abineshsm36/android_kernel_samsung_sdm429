@@ -5,10 +5,10 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source
+      - name: Checkout Kernel
         uses: actions/checkout@v4
 
       - name: Install Dependencies
@@ -19,17 +19,16 @@ jobs:
             build-essential \
             libssl-dev \
             libelf-dev \
-            python3 \
-            python-is-python3 \
-            curl zip unzip
+            python3
 
       - name: Clone Proton Clang
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-      - name: Show Available Defconfigs
+      - name: Configure Kernel
         run: |
-          find arch/arm64/configs -type f | sort
+          export ARCH=arm64
+          make O=out lineageos_gtowifi_defconfig
 
       - name: Build Kernel
         run: |
@@ -37,18 +36,15 @@ jobs:
           export SUBARCH=arm64
           export PATH=$PWD/clang/bin:$PATH
 
-          mkdir -p out
-
-          # CHANGE THIS AFTER CHECKING LOGS
-          make O=out vendor/gta_defconfig
-
           make O=out -j$(nproc) \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-      - name: Upload Build Output
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-output
-          path: out
+          name: SM-T295-Kernel
+          path: |
+            out/arch/arm64/boot/Image*
+            out/arch/arm64/boot/dts/
