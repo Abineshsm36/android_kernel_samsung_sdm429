@@ -9,7 +9,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Kernel Source
@@ -48,6 +48,13 @@ jobs:
 
           make O=out olddefconfig
 
+      - name: Check available resources
+        run: |
+          echo "--- Memory ---"
+          free -h
+          echo "--- Disk ---"
+          df -h
+
       - name: Build Kernel
         working-directory: kernel
         run: |
@@ -57,7 +64,10 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-          make O=out -j$(nproc) \
+          # Using a fixed, lower job count instead of -j$(nproc) to avoid
+          # out-of-memory kills (which surface as "broken pipe") on the
+          # runner's limited RAM. Raise this later once a build succeeds.
+          make O=out -j2 \
             CC=clang \
             LLVM=1 \
             LLVM_IAS=1 \
@@ -73,7 +83,7 @@ jobs:
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
           make O=out modules_prepare
-          make O=out -j$(nproc) \
+          make O=out -j2 \
             CC=clang \
             LLVM=1 \
             LLVM_IAS=1 \
