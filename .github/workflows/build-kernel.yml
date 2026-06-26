@@ -1,42 +1,120 @@
-name: Build SM-T295 Kernel
+name: Build SM-T295 Kernel + ZRAM Module
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
+
+env:
+  ZRAM_ALGO: lzo-rle
+  ZRAM_SIZE: "2147483648"   # 2GB in bytes - set to <= your tablet's RAM
 
 jobs:
-build:
-runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-22.04
 
-```
-steps:
-  - uses: actions/checkout@v4
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          path: kernel
 
-  - name: Install Dependencies
-    run: |
-      sudo apt update
-      sudo apt install -y \
-        git bc bison flex build-essential \
-        clang lld llvm \
-        libssl-dev libelf-dev python3
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git bc bison flex build-essential curl zip unzip rsync \
+            libssl-dev libelf-dev python3 gcc-arm-linux-gnueabi
 
-  - name: Configure Kernel
-    run: |
-      export ARCH=arm64
-      make O=out lineageos_gtowifi_defconfig
+      - name: Set up Neutron Clang (via AntMan)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/clang"
+          cd "$GITHUB_WORKSPACE/clang"
+          curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+          chmod +x antman
+          ./antman -S
+          # Sanity check: confirm the compiler actually exists and works
+          ./bin/clang --version
 
-  - name: Build Kernel
-    run: |
-      export ARCH=arm64
-      export SUBARCH=arm64
+      - name: Configure Kernel + Enable ZRAM module
+        working-directory: kernel
+        run: |
+          export ARCH=arm64
+          make O=out lineageos_gtowifi_defconfig
 
-      make O=out -j$(nproc) \
-        CC=clang \
-        LLVM=1 \
-        LLVM_IAS=1
+          # Force zram + the lzo-rle algorithm to build as loadable .ko, not built-in.
+          # If your tree has zstdn/lz4kd patches, swap CONFIG_CRYPTO_LZO for the
+          # actual symbol your patch added (check with: grep -r "zstdn" arch/arm64/configs drivers/)
+          ../clang/bin/clang --version > /dev/null  # sanity check toolchain is reachable
+          scripts/config --file out/.config --module CONFIG_ZRAM
+          scripts/config --file out/.config --module CONFIG_CRYPTO_LZO
 
-  - name: Upload Artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: kernel
-      path: out
-```
+          make O=out olddefconfig
+
+      - name: Build Kernel
+        working-directory: kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          make O=out -j$(nproc) \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            LD=ld.lld
+
+      - name: Build ZRAM Kernel Module
+        working-directory: kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          make O=out modules_prepare
+          make O=out -j$(nproc) \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            LD=ld.lld \
+            modules
+
+      - name: Locate and rename the .ko
+        working-directory: kernel
+        run: |
+          KO_PATH=$(find out -iname "*zram*.ko" -o -iname "*lzo*.ko" | head -n1)
+          if [ -z "$KO_PATH" ]; then
+            echo "No matching .ko found. List of all built modules:"
+            find out -name "*.ko"
+            exit 1
+          fi
+          echo "Found: $KO_PATH"
+          mkdir -p "$GITHUB_WORKSPACE/zram_module/zram"
+          cp "$KO_PATH" "$GITHUB_WORKSPACE/zram_module/zram/zram.ko"
+
+      - name: Fetch ZRAM-Module template and configure
+        run: |
+          git clone --depth=1 https://github.com/FurLC/ZRAM-Module.git module_template
+          rsync -a --exclude='.git' module_template/ zram_module/
+          cd zram_module
+          sed -i "s/^ZRAM_ALGO=.*/ZRAM_ALGO=${ZRAM_ALGO}/" config.prop
+          sed -i "s/^ZRAM_SIZE=.*/ZRAM_SIZE=${ZRAM_SIZE}/" config.prop
+          cat config.prop
+
+      - name: Package flashable zip
+        run: |
+          cd zram_module
+          zip -r9 "$GITHUB_WORKSPACE/ZRAM-Module-gtowifi.zip" . -x ".git/*"
+
+      - name: Upload Kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: SM-T295-Kernel
+          path: kernel/out
+
+      - name: Upload ZRAM Module
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZRAM-Module-gtowifi
+          path: ZRAM-Module-gtowifi.zip
